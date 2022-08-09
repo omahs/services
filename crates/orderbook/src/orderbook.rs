@@ -1,9 +1,11 @@
 use crate::{
-    database::orders::{InsertionError, OrderStoring},
+    database::{
+        auctions::AuctionRetrieval,
+        orders::{InsertionError, OrderStoring},
+    },
     order_validation::{OrderValidating, ValidationError},
-    solvable_orders::{SolvableOrders, SolvableOrdersCache},
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use chrono::Utc;
 use ethcontract::H256;
 use model::{
@@ -12,8 +14,8 @@ use model::{
     DomainSeparator,
 };
 use primitive_types::H160;
-use shared::metrics::LivenessChecking;
-use std::{sync::Arc, time::Duration};
+use shared::{current_block::CurrentBlockStream, metrics::LivenessChecking};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(prometheus_metric_storage::MetricStorage, Clone, Debug)]
@@ -119,10 +121,10 @@ impl From<InsertionError> for ReplaceOrderError {
 pub struct Orderbook {
     domain_separator: DomainSeparator,
     settlement_contract: H160,
-    database: Arc<dyn OrderStoring>,
-    solvable_orders: Arc<SolvableOrdersCache>,
-    solvable_orders_max_update_age: Duration,
+    database: crate::database::Postgres,
+    solvable_orders_max_update_age_blocks: u64,
     order_validator: Arc<dyn OrderValidating>,
+    current_block: CurrentBlockStream,
 }
 
 impl Orderbook {
@@ -130,18 +132,18 @@ impl Orderbook {
     pub fn new(
         domain_separator: DomainSeparator,
         settlement_contract: H160,
-        database: Arc<dyn OrderStoring>,
-        solvable_orders: Arc<SolvableOrdersCache>,
-        solvable_orders_max_update_age: Duration,
+        database: crate::database::Postgres,
+        solvable_orders_max_update_age_blocks: u64,
         order_validator: Arc<dyn OrderValidating>,
+        current_block: CurrentBlockStream,
     ) -> Self {
         Self {
             domain_separator,
             settlement_contract,
             database,
-            solvable_orders,
-            solvable_orders_max_update_age,
+            solvable_orders_max_update_age_blocks,
             order_validator,
+            current_block,
         }
     }
 
@@ -153,8 +155,6 @@ impl Orderbook {
 
         self.database.insert_order(&order, quote).await?;
         Metrics::on_order_operation(&order, OrderOperation::Created);
-
-        self.solvable_orders.request_update();
 
         Ok(order.metadata.uid)
     }
@@ -208,8 +208,6 @@ impl Orderbook {
             .cancel_order(&order.metadata.uid, Utc::now())
             .await?;
         Metrics::on_order_operation(&order, OrderOperation::Cancelled);
-
-        self.solvable_orders.request_update();
 
         Ok(())
     }
@@ -275,33 +273,28 @@ impl Orderbook {
     }
 
     pub async fn get_order(&self, uid: &OrderUid) -> Result<Option<Order>> {
-        let mut order = match self.database.single_order(uid).await? {
-            Some(order) => order,
-            None => return Ok(None),
-        };
-        set_available_balances(std::slice::from_mut(&mut order), &self.solvable_orders);
-        Ok(Some(order))
+        self.database.single_order(uid).await
     }
 
     pub async fn get_orders_for_tx(&self, hash: &H256) -> Result<Vec<Order>> {
-        let mut orders = self.database.orders_for_tx(hash).await?;
-        set_available_balances(orders.as_mut_slice(), &self.solvable_orders);
-        Ok(orders)
+        self.database.orders_for_tx(hash).await
     }
 
-    pub fn get_solvable_orders(&self) -> Result<SolvableOrders> {
-        let solvable_orders = self.solvable_orders.cached_solvable_orders();
+    pub async fn get_auction(&self) -> Result<Auction> {
+        let auction = self
+            .database
+            .most_recent_auction()
+            .await?
+            .ok_or_else(|| anyhow!("no auction"))?;
+        let current_block = self
+            .current_block
+            .borrow()
+            .number
+            .ok_or_else(|| anyhow!("no block number"))?
+            .as_u64();
+        let age_in_blocks = current_block.saturating_sub(auction.block);
         ensure!(
-            solvable_orders.update_time.elapsed() <= self.solvable_orders_max_update_age,
-            "solvable orders are out of date"
-        );
-        Ok(solvable_orders)
-    }
-
-    pub fn get_auction(&self) -> Result<Auction> {
-        let (auction, update_time) = self.solvable_orders.cached_auction();
-        ensure!(
-            update_time.elapsed() <= self.solvable_orders_max_update_age,
+            age_in_blocks <= self.solvable_orders_max_update_age_blocks,
             "auction is out of date"
         );
         Ok(auction)
@@ -313,27 +306,17 @@ impl Orderbook {
         offset: u64,
         limit: u64,
     ) -> Result<Vec<Order>> {
-        let mut orders = self
-            .database
+        self.database
             .user_orders(owner, offset, Some(limit))
             .await
-            .context("get_user_orders error")?;
-        set_available_balances(orders.as_mut_slice(), &self.solvable_orders);
-        Ok(orders)
+            .context("get_user_orders error")
     }
 }
 
 #[async_trait::async_trait]
 impl LivenessChecking for Orderbook {
     async fn is_alive(&self) -> bool {
-        self.get_solvable_orders().is_ok()
-    }
-}
-
-fn set_available_balances(orders: &mut [Order], cache: &SolvableOrdersCache) {
-    for order in orders.iter_mut() {
-        order.metadata.available_balance =
-            cache.cached_balance(&shared::account_balances::Query::from_order(order));
+        self.get_auction().await.is_ok()
     }
 }
 

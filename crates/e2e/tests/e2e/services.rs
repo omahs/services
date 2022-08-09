@@ -1,5 +1,6 @@
 use crate::deploy::Contracts;
 use anyhow::{anyhow, Result};
+use autopilot::solvable_orders::SolvableOrdersCache;
 use contracts::{ERC20Mintable, GnosisSafe, GnosisSafeCompatibilityFallbackHandler, WETH9};
 use ethcontract::{Bytes, H160, H256, U256};
 use orderbook::{
@@ -8,7 +9,6 @@ use orderbook::{
     order_quoting::{OrderQuoter, QuoteHandler},
     order_validation::{OrderValidator, SignatureConfiguration},
     orderbook::Orderbook,
-    solvable_orders::SolvableOrdersCache,
 };
 use reqwest::Client;
 use shared::{
@@ -240,14 +240,13 @@ impl OrderbookServices {
         let signature_validator = Arc::new(Web3SignatureValidator::new(web3.clone()));
         let solvable_orders_cache = SolvableOrdersCache::new(
             Duration::from_secs(120),
-            api_db.clone(),
+            autopilot_db.clone(),
             Default::default(),
             balance_fetcher.clone(),
             bad_token_detector.clone(),
             current_block_stream.clone(),
             native_price_estimator,
             signature_validator.clone(),
-            api_db.clone(),
         );
         let order_validator = Arc::new(OrderValidator::new(
             Box::new(web3.clone()),
@@ -265,10 +264,10 @@ impl OrderbookServices {
         let orderbook = Arc::new(Orderbook::new(
             contracts.domain_separator,
             contracts.gp_settlement.address(),
-            api_db.clone(),
-            solvable_orders_cache.clone(),
-            Duration::from_secs(600),
+            api_db.as_ref().clone(),
+            100,
             order_validator.clone(),
+            current_block_stream.clone(),
         ));
         let maintenance = ServiceMaintenance {
             maintainers: vec![Arc::new(autopilot_db.clone()), event_updater],
@@ -282,7 +281,6 @@ impl OrderbookServices {
             pending(),
             api_db.clone(),
             None,
-            solvable_orders_cache.clone(),
         );
 
         Self {
