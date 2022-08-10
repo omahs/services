@@ -11,7 +11,7 @@ use crate::{
     settlement::{external_prices::ExternalPrices, PriceCheckTokens, Settlement},
     settlement_post_processing::PostProcessingPipeline,
     settlement_ranker::SettlementRanker,
-    settlement_rater::SettlementRater,
+    settlement_rater::{SettlementRater, SettlementRating},
     settlement_simulation::{self, simulate_before_after_access_list, TenderlyApi},
     settlement_submission::{SolutionSubmitter, SubmissionError},
     solver::{Auction, SettlementWithError, Solver, SolverRunError, Solvers},
@@ -65,6 +65,7 @@ pub struct Driver {
     fee_objective_scaling_factor: BigRational,
     tenderly: Option<TenderlyApi>,
     settlement_ranker: SettlementRanker,
+    settlement_rater: Arc<dyn SettlementRating>,
 }
 impl Driver {
     #[allow(clippy::too_many_arguments)]
@@ -100,7 +101,7 @@ impl Driver {
             market_makable_token_list,
         );
 
-        let settlement_rater = Box::new(SettlementRater {
+        let settlement_rater = Arc::new(SettlementRater {
             access_list_estimator: solution_submitter.access_list_estimator.clone(),
             settlement_contract: settlement_contract.clone(),
             web3: web3.clone(),
@@ -111,7 +112,7 @@ impl Driver {
             token_list_restriction_for_price_checks,
             metrics: metrics.clone(),
             min_order_age,
-            settlement_rater,
+            settlement_rater: settlement_rater.clone(),
         };
 
         Self {
@@ -137,6 +138,7 @@ impl Driver {
                 .unwrap(),
             tenderly,
             settlement_ranker,
+            settlement_rater,
         }
     }
 
@@ -481,6 +483,21 @@ impl Driver {
             self.metrics.settlement_simulation_succeeded(solver.name());
         }
 
+        match self
+            .optimize_winning_solution(&rated_settlements, gas_price, &external_prices)
+            .await
+        {
+            Some(optimized_solution) => rated_settlements.push(optimized_solution),
+            None => {
+                let original_solution = rated_settlements.last();
+                tracing::debug!(
+                    original_solution = ?original_solution.map(|s| &s.1),
+                    "failed to compute optimized solution, copying last solution"
+                );
+                rated_settlements.extend(original_solution.cloned());
+            }
+        }
+
         print_settlements(&rated_settlements, &self.fee_objective_scaling_factor);
 
         // Report solver competition data to the api.
@@ -530,23 +547,13 @@ impl Driver {
                 .collect(),
         };
 
-        if let Some((winning_solver, mut winning_settlement, _)) = rated_settlements.pop() {
-            winning_settlement.settlement = self
-                .post_processing_pipeline
-                .optimize_settlement(
-                    winning_settlement.settlement,
-                    winning_solver.account().clone(),
-                    gas_price,
-                )
-                .await;
-
+        if let Some((winning_solver, winning_settlement, _)) = rated_settlements.pop() {
             tracing::info!(
                 "winning settlement id {} by solver {}: {:?}",
                 winning_settlement.id,
                 winning_solver.name(),
                 winning_settlement
             );
-
             self.metrics
                 .complete_runloop_until_transaction(start.elapsed());
             let start = Instant::now();
@@ -622,6 +629,39 @@ impl Driver {
             }
             Err(err) => tracing::warn!(?err, "failed to send solver competition"),
         }
+    }
+
+    /// Tries to generate an optimized version of the winning settlement. Returns `None` if
+    /// anything fails during the computation. Will return the original solution if the
+    /// optimization passes don't improve anything.
+    async fn optimize_winning_solution(
+        &self,
+        settlements: &[(Arc<dyn Solver>, RatedSettlement, Option<AccessList>)],
+        gas_price: GasPrice1559,
+        external_prices: &ExternalPrices,
+    ) -> Option<(Arc<dyn Solver>, RatedSettlement, Option<AccessList>)> {
+        let (winning_solver, winning_settlement, _) = settlements.last()?;
+
+        let optimized_settlement = self
+            .post_processing_pipeline
+            .optimize_settlement(
+                winning_settlement.settlement.clone(),
+                winning_solver.account().clone(),
+                gas_price,
+            )
+            .await;
+
+        let (mut results, _) = self
+            .settlement_rater
+            .rate_settlements(
+                vec![(winning_solver.clone(), optimized_settlement)],
+                external_prices,
+                gas_price,
+            )
+            .await
+            .ok()?;
+
+        results.pop()
     }
 }
 
