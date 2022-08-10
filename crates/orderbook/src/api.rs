@@ -6,8 +6,6 @@ mod get_fee_info;
 mod get_markets;
 mod get_order_by_uid;
 mod get_orders_by_tx;
-mod get_solvable_orders;
-mod get_solvable_orders_v2;
 mod get_solver_competition;
 mod get_trades;
 mod get_user_orders;
@@ -45,9 +43,6 @@ pub fn handle_all_routes(
     let get_order = get_order_by_uid::get_order_by_uid(orderbook.clone())
         .map(|result| (result, "v1/get_order"))
         .boxed();
-    let get_solvable_orders = get_solvable_orders::get_solvable_orders(orderbook.clone())
-        .map(|result| (result, "v1/get_solvable_orders"))
-        .boxed();
     let get_trades = get_trades::get_trades(database)
         .map(|result| (result, "v1/get_trades"))
         .boxed();
@@ -75,7 +70,7 @@ pub fn handle_all_routes(
     let post_quote = post_quote::post_quote(quotes)
         .map(|result| (result, "v1/post_quote"))
         .boxed();
-    let get_auction = get_auction::get_auction(orderbook.clone())
+    let get_auction = get_auction::get_auction(orderbook)
         .map(|result| (result, "v1/auction"))
         .boxed();
     let get_solver_competition = get_solver_competition::get(solver_competition.clone())
@@ -92,8 +87,6 @@ pub fn handle_all_routes(
                 .or(fee_info)
                 .unify()
                 .or(get_order)
-                .unify()
-                .or(get_solvable_orders)
                 .unify()
                 .or(get_trades)
                 .unify()
@@ -123,18 +116,9 @@ pub fn handle_all_routes(
         .untuple_one()
         .boxed();
 
-    // Routes for api v2.
-
-    let get_solvable_orders_v2 = get_solvable_orders_v2::get_solvable_orders(orderbook)
-        .map(|result| (result, "v2/get_solvable_orders"))
-        .boxed();
-
-    let routes_v2 = warp::path!("api" / "v2" / ..)
-        .and(get_solvable_orders_v2)
-        .untuple_one();
-
     // Routes combined
+    let routes = routes_v1;
+    // Could be `routes_v1.or(routes_v2).unify().boxed();` in the future.
 
-    let routes = routes_v1.or(routes_v2).unify().boxed();
     finalize_router(routes, "orderbook::api::request_summary")
 }
