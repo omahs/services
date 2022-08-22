@@ -26,7 +26,7 @@ pub struct SolverCompetition {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompetitionAuction {
     pub orders: Vec<OrderUid>,
@@ -57,7 +57,7 @@ pub struct Objective {
     pub gas: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
     pub id: OrderUid,
