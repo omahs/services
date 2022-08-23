@@ -247,7 +247,7 @@ impl OrderbookServices {
             balance_fetcher.clone(),
             bad_token_detector.clone(),
             current_block_stream.clone(),
-            native_price_estimator,
+            native_price_estimator.clone(),
             signature_validator.clone(),
             Duration::from_secs(1),
         );
@@ -280,6 +280,7 @@ impl OrderbookServices {
             api_db.clone(),
             orderbook,
             quotes,
+            native_price_estimator,
             API_HOST[7..].parse().expect("Couldn't parse API address"),
             pending(),
             api_db.clone(),

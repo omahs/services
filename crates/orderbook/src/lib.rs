@@ -13,6 +13,7 @@ use anyhow::{anyhow, Context as _, Result};
 use contracts::GPv2Settlement;
 use futures::Future;
 use model::DomainSeparator;
+use shared::price_estimation::native::NativePriceEstimating;
 use solver_competition::SolverCompetitionStoring;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{task, task::JoinHandle};
@@ -23,6 +24,7 @@ pub fn serve_api(
     database: Arc<dyn TradeRetrieving>,
     orderbook: Arc<Orderbook>,
     quotes: Arc<QuoteHandler>,
+    native_price_estimator: Arc<dyn NativePriceEstimating>,
     address: SocketAddr,
     shutdown_receiver: impl Future<Output = ()> + Send + 'static,
     solver_competition: Arc<dyn SolverCompetitionStoring>,
@@ -32,6 +34,7 @@ pub fn serve_api(
         database,
         orderbook,
         quotes,
+        native_price_estimator,
         solver_competition,
         solver_competition_auth,
     )

@@ -553,6 +553,7 @@ async fn main() {
         database.clone(),
         orderbook.clone(),
         quotes,
+        native_price_estimator,
         args.bind_address,
         async {
             let _ = shutdown_receiver.await;
