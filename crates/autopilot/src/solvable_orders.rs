@@ -1,7 +1,11 @@
 use crate::database::Postgres;
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
-use model::{auction::Auction, order::Order, signature::Signature, time::now_in_epoch_seconds};
+use model::{
+    auction::{Auction, Order},
+    signature::Signature,
+    time::now_in_epoch_seconds,
+};
 use primitive_types::{H160, H256, U256};
 use prometheus::{IntCounter, IntGauge};
 use shared::{
@@ -156,11 +160,7 @@ impl SolvableOrdersCache {
             new_balances.insert(query, balance);
         }
 
-        let mut orders = solvable_orders(orders, &new_balances);
-        for order in &mut orders {
-            let query = Query::from_order(order);
-            order.metadata.available_balance = new_balances.get(&query).copied();
-        }
+        let orders = solvable_orders(orders, &new_balances);
 
         // create auction
         let (orders, prices) = get_orders_with_native_prices(
@@ -248,12 +248,20 @@ async fn filter_invalid_signature_orders(
         .collect()
 }
 
+fn order_to_balance_query(order: &Order) -> Query {
+    Query {
+        owner: order.metadata.owner,
+        token: order.data.sell_token,
+        source: order.data.sell_token_balance,
+    }
+}
+
 /// Returns existing balances and Vec of queries that need to be peformed.
 fn new_balances(old_balances: &Balances, orders: &[Order]) -> (HashMap<Query, U256>, Vec<Query>) {
     let mut new_balances = HashMap::new();
     let mut missing_queries = HashSet::new();
     for order in orders {
-        let query = Query::from_order(order);
+        let query = order_to_balance_query(order);
         match old_balances.get(&query) {
             Some(balance) => {
                 new_balances.insert(query, *balance);
@@ -274,7 +282,7 @@ fn solvable_orders(mut orders: Vec<Order>, balances: &Balances) -> Vec<Order> {
     let mut orders_map = HashMap::<Query, Vec<Order>>::new();
     orders.sort_by_key(|order| std::cmp::Reverse(order.metadata.creation_date));
     for order in orders {
-        let key = Query::from_order(&order);
+        let key = order_to_balance_query(&order);
         orders_map.entry(key).or_default().push(order);
     }
 
@@ -497,7 +505,10 @@ mod tests {
     use futures::{FutureExt, StreamExt};
     use maplit::{btreemap, hashmap, hashset};
     use mockall::predicate::eq;
-    use model::order::{OrderBuilder, OrderData, OrderKind, OrderMetadata, OrderUid};
+    use model::{
+        auction::OrderMetadata,
+        order::{OrderData, OrderKind, OrderUid},
+    };
     use primitive_types::H160;
     use shared::{
         bad_token::list_based::ListBasedDetector,
@@ -534,7 +545,7 @@ mod tests {
             },
         ];
 
-        let balances = hashmap! {Query::from_order(&orders[0]) => U256::from(9)};
+        let balances = hashmap! {order_to_balance_query(&orders[0]) => U256::from(9)};
         let orders_ = solvable_orders(orders.clone(), &balances);
         // Second order has lower timestamp so it isn't picked.
         assert_eq!(orders_, orders[..1]);
@@ -576,30 +587,46 @@ mod tests {
         let token4 = H160([4; 20]);
 
         let orders = vec![
-            OrderBuilder::default()
-                .with_sell_token(token1)
-                .with_buy_token(token2)
-                .with_buy_amount(1.into())
-                .with_sell_amount(1.into())
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(token2)
-                .with_buy_token(token3)
-                .with_buy_amount(1.into())
-                .with_sell_amount(1.into())
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(token1)
-                .with_buy_token(token3)
-                .with_buy_amount(1.into())
-                .with_sell_amount(1.into())
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(token2)
-                .with_buy_token(token4)
-                .with_buy_amount(1.into())
-                .with_sell_amount(1.into())
-                .build(),
+            Order {
+                data: OrderData {
+                    sell_token: token1,
+                    buy_token: token2,
+                    buy_amount: 1.into(),
+                    sell_amount: 1.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: token2,
+                    buy_token: token3,
+                    buy_amount: 1.into(),
+                    sell_amount: 1.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: token1,
+                    buy_token: token3,
+                    buy_amount: 1.into(),
+                    sell_amount: 1.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: token2,
+                    buy_token: token4,
+                    buy_amount: 1.into(),
+                    sell_amount: 1.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         ];
         let prices = btreemap! {
             token1 => 2.,
@@ -682,7 +709,7 @@ mod tests {
                     ..Default::default()
                 },
                 metadata: OrderMetadata {
-                    executed_buy_amount: 9_u32.into(),
+                    executed_amount: 9_u32.into(),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -744,14 +771,22 @@ mod tests {
                     .boxed()
             });
         let orders = vec![
-            OrderBuilder::default()
-                .with_sell_token(H160::from_low_u64_be(0))
-                .with_buy_token(H160::from_low_u64_be(1))
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(H160::from_low_u64_be(2))
-                .with_buy_token(H160::from_low_u64_be(3))
-                .build(),
+            Order {
+                data: OrderData {
+                    sell_token: H160::from_low_u64_be(0),
+                    buy_token: H160::from_low_u64_be(1),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: H160::from_low_u64_be(2),
+                    buy_token: H160::from_low_u64_be(3),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         ];
         // last token price won't be available
         let deadline = Instant::now() + Duration::from_secs_f32(3.5);
@@ -836,8 +871,7 @@ mod tests {
             // partially fillable order completely filled
             Order {
                 metadata: OrderMetadata {
-                    executed_buy_amount: 1u8.into(),
-                    executed_sell_amount: 1u8.into(),
+                    executed_amount: 1u8.into(),
                     ..Default::default()
                 },
                 data: OrderData {
@@ -850,7 +884,7 @@ mod tests {
             },
         ];
 
-        let balances = hashmap! {Query::from_order(&orders[0]) => U256::MAX};
+        let balances = hashmap! {order_to_balance_query(&orders[0]) => U256::MAX};
         let expected_result = vec![orders[0].clone(), orders[1].clone()];
         let mut filtered_orders = solvable_orders(orders, &balances);
         // Deal with `solvable_orders()` sorting the orders.
@@ -947,18 +981,30 @@ mod tests {
         let token2 = H160::from_low_u64_le(2);
         let bad_token = ListBasedDetector::deny_list(vec![token0]);
         let orders = vec![
-            OrderBuilder::default()
-                .with_sell_token(token0)
-                .with_buy_token(token1)
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(token1)
-                .with_buy_token(token2)
-                .build(),
-            OrderBuilder::default()
-                .with_sell_token(token0)
-                .with_buy_token(token2)
-                .build(),
+            Order {
+                data: OrderData {
+                    sell_token: token0,
+                    buy_token: token1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: token1,
+                    buy_token: token2,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Order {
+                data: OrderData {
+                    sell_token: token0,
+                    buy_token: token2,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         ];
         let result = filter_unsupported_tokens(orders.clone(), &bad_token)
             .now_or_never()

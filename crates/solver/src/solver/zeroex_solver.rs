@@ -169,7 +169,10 @@ mod tests {
     use ethcontract::{Web3, H160, U256};
     use mockall::predicate::*;
     use mockall::Sequence;
-    use model::order::{Order, OrderData, OrderKind};
+    use model::{
+        auction::Order,
+        order::{OrderData, OrderKind},
+    };
     use shared::transport::{create_env_test_transport, create_test_transport};
     use shared::zeroex_api::{DefaultZeroExApi, MockZeroExApi, PriceResponse};
 

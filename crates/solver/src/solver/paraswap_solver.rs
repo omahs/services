@@ -210,7 +210,10 @@ mod tests {
     use contracts::WETH9;
     use ethcontract::U256;
     use mockall::{predicate::*, Sequence};
-    use model::order::{Order, OrderData, OrderKind};
+    use model::{
+        auction::Order,
+        order::{OrderData, OrderKind},
+    };
     use reqwest::Client;
     use shared::{
         dummy_contract,

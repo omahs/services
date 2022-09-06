@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::Result;
 use itertools::Itertools;
-use model::order::{Order, OrderKind};
+use model::{auction::Order, order::OrderKind};
 use num::{rational::Ratio, BigInt, BigRational, One, Signed, Zero};
 use primitive_types::{H160, U256};
 use shared::conversions::U256Ext as _;

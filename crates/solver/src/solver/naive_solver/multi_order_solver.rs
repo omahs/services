@@ -319,16 +319,12 @@ fn is_valid_solution(solution: &Settlement, pair: TokenPair) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use liquidity::tests::CapturingSettlementHandler;
     use maplit::hashmap;
-    use model::{
-        order::{Order, OrderData},
-        TokenPair,
-    };
+    use model::{auction::Order, order::OrderData, TokenPair};
     use num::rational::Ratio;
     use shared::{baseline_solver::BaselineSolvable, sources::uniswap_v2::pool_fetching::Pool};
-
-    use super::*;
 
     fn to_wei(base: u128) -> U256 {
         U256::from(base) * U256::from(10).pow(18.into())

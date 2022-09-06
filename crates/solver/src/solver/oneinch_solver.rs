@@ -255,7 +255,10 @@ mod tests {
     use contracts::{GPv2Settlement, WETH9};
     use ethcontract::{Web3, H160, U256};
     use mockall::{predicate::*, Sequence};
-    use model::order::{Order, OrderData, OrderKind};
+    use model::{
+        auction::Order,
+        order::{OrderData, OrderKind},
+    };
     use shared::oneinch_api::{MockOneInchClient, Protocols, Spender};
     use shared::{dummy_contract, transport::create_env_test_transport};
 

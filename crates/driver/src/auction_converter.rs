@@ -123,7 +123,8 @@ mod tests {
     use gas_estimation::GasPrice1559;
     use maplit::btreemap;
     use model::{
-        order::{Order, OrderData, OrderMetadata, BUY_ETH_ADDRESS},
+        auction::{Order, OrderMetadata},
+        order::{OrderData, BUY_ETH_ADDRESS},
         TokenPair,
     };
     use num::rational::{BigRational, Ratio};
@@ -162,7 +163,7 @@ mod tests {
             },
             metadata: OrderMetadata {
                 full_fee_amount: 100.into(),
-                executed_buy_amount: if with_error { 100u8 } else { 1u8 }.into(),
+                executed_amount: if with_error { 100u8 } else { 1u8 }.into(),
                 ..Default::default()
             },
             ..Default::default()
