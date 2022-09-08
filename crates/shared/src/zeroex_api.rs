@@ -4,8 +4,10 @@
 //! <https://0x.org/docs/api#request-1>
 //! <https://api.0x.org/>
 
-use crate::debug_bytes;
-use crate::solver_utils::{deserialize_decimal_f64, Slippage};
+use crate::{
+    debug_bytes,
+    solver_utils::{deserialize_decimal_f64, Slippage},
+};
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use derivative::Derivative;
@@ -329,6 +331,11 @@ impl DefaultZeroExApi {
     /// Create a new 0x HTTP API client using the default URL.
     pub fn with_default_url(client: Client) -> Self {
         Self::new(Self::DEFAULT_URL, None, client).unwrap()
+    }
+
+    /// Create a 0x HTTP API client using the default URL and HTTP client.
+    pub fn test() -> Self {
+        Self::new(Self::DEFAULT_URL, None, Client::new()).unwrap()
     }
 
     /// Retrieves specific page of current limit orders.
