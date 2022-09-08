@@ -179,10 +179,8 @@ async fn vault_balances(web3: Web3) {
             ],
             access_list_estimator: Arc::new(
                 create_priority_estimator(
-                    &client,
                     &web3,
                     &[AccessListEstimatorType::Web3],
-                    None,
                     None,
                     network_id,
                 )

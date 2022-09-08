@@ -235,10 +235,8 @@ async fn eth_integration(web3: Web3) {
             ],
             access_list_estimator: Arc::new(
                 create_priority_estimator(
-                    client_ref,
                     &web3,
                     &[AccessListEstimatorType::Web3],
-                    None,
                     None,
                     network_id,
                 )

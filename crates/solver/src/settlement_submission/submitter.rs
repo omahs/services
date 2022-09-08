@@ -705,10 +705,8 @@ mod tests {
         };
         let access_list_estimator = Arc::new(
             create_priority_estimator(
-                &Client::new(),
                 &web3,
                 &[AccessListEstimatorType::Web3],
-                None,
                 None,
                 "1".to_string(),
             )
